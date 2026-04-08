@@ -1,0 +1,2 @@
+from .network_factory import create_scale_free_weighted_directed_network
+

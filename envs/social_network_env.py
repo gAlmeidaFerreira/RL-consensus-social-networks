@@ -26,5 +26,16 @@ class SocialNetworkEnv(gym.Env):
 
 
     def reset(self, seed=None, options=None):
+        super().reset(seed=seed)
+        self.current_step = 0
+
+        #Create a scale-free weighted directed network
+        self.G = create_scale_free_weighted_directed_network(self.num_nodes)
+
+        #Initialize opinions randomly between -1 and 1
+        self.opinions = np.random.uniform(-1, 1, size=(self.num_nodes,).astype(np.float32))
+
+        #Initialize weight matrix
+        self.W = nx.to_numpy_array(self.G, weight='weight').astype(np.float32)
     
     def step(self, action):

@@ -1,18 +1,19 @@
 import networkx as nx
 import numpy as np
 
-def create_scale_free_weighted_directed_network(num_nodes=50):
+def create_scale_free_weighted_directed_network(num_nodes=50, m=2):
     """
     Create a scale-free weighted directed network using the Barabási-Albert model.
     
     Args:
         num_nodes: Number of nodes in the network (default: 50)
+        m: Number of edges to attach from a new node to existing nodes.
     
     Returns:
         A directed NetworkX graph with row stochastic weighted edges
     """
     # Create a scale-free network using Barabási-Albert model
-    G = nx.barabasi_albert_graph(num_nodes, attachment=2)
+    G = nx.barabasi_albert_graph(num_nodes, m=m)
     
     # Convert to directed graph
     G = G.to_directed()
