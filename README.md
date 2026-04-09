@@ -6,8 +6,7 @@ polarization_rl/
 ├── envs/
 │   ├── init.py
 │   ├── social_network_env.py   # The Gymnasium environment class
-│   ├── dynamics.py            # HK model logic & weight stochasticity
-│   └── network_factory.py      # Scale-free graph generation logic
+│   └── network_factory.py      # Scale-free graph generation logic and Opinion Dynamics
 ├── agents/
 │   ├── init.py
 │   ├── common/

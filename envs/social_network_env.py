@@ -5,12 +5,13 @@ import networkx as nx
 from envs.network_factory import create_scale_free_weighted_directed_network
 
 class SocialNetworkEnv(gym.Env):
-    def __init__(self, num_nodes=50, max_steps=100, gamma_threshold=0.01):
+    def __init__(self, num_nodes=50, max_steps=100, gamma_threshold=0.01, epsilon=0.1):
         super(SocialNetworkEnv, self).__init__()
 
         self.num_nodes = num_nodes
         self.max_steps = max_steps
         self.gamma_threshold = gamma_threshold
+        self.epsilon = epsilon
         self.current_step = 0
 
         #Action Space: Adjustments to the weight matrix (N x N)
@@ -37,5 +38,29 @@ class SocialNetworkEnv(gym.Env):
 
         #Initialize weight matrix
         self.W = nx.to_numpy_array(self.G, weight='weight').astype(np.float32)
-    
+
+        observation = {
+            'opinions': self.opinions,
+            'weights': self.W,
+            'communities': np.zeros(self.num_nodes, dtype=np.int32)  # Placeholder for community labels
+        }
+        info = {}
+        return observation, info
+
     def step(self, action):
+        self.current_step += 1
+
+        #1. Apply action: reshape action back to N X N and add to W
+        action_matrix = action.reshape((self.num_nodes, self.num_nodes))
+        self.W = self.W + action_matrix
+
+        #TODO: check if action will already make the weights row stochastic
+        #2. Normalize rows of matrix
+        self.W = np.exp(self.W) / np.sum(np.exp(self.W), axis=1, keepdims=True)
+
+        #3. Update opinions using H-K model
+
+
+
+        
+        return observation, reward, done, info

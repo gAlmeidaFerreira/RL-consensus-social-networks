@@ -18,7 +18,7 @@ def create_scale_free_weighted_directed_network(num_nodes=50, m=2):
     # Convert to directed graph
     G = G.to_directed()
     
-    # Add random weights to edges
+    # Add random weights to edges following a power-law distribution
     for u, v in G.edges():
         G[u][v]['weight'] = nx.utils.random_sequence.powerlaw_sequence(1, exponent=2.5)[0]
     
@@ -31,3 +31,25 @@ def create_scale_free_weighted_directed_network(num_nodes=50, m=2):
                 data['weight'] /= total_weight
     
     return G
+
+def apply_hk_dynamics(opinions, weights, epsilon):
+    # Implementation for H-K model dynamics
+    dist_matrix = np.abs(opinions[:, np.newaxis] - opinions[np.newaxis, :])
+
+    # Select only those weights where the distance is less than or equal to epsilon
+    influence_mask = (dist_matrix <= epsilon).astype(float)
+    gated_weights = weights * influence_mask
+
+    # normalize gated weights to ensure they sum to 1 for each node
+    row_sums = gated_weights.sum(axis=1, keepdims=True)
+    gated_weights = np.where(row_sums > 0, gated_weights / row_sums, 0)
+
+    #if node is isolated, it keeps its opinion
+    for i in range(len(opinions)):
+        if row_sums[i] == 0:
+            gated_weights[i, i] = 1.0
+
+    # Update opinions based on the weighted average of neighbors' opinions
+    new_opinions = np.dot(gated_weights, opinions)
+    return new_opinions, gated_weights
+
