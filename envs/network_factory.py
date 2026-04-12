@@ -48,23 +48,20 @@ class Network:
         G = G.to_directed()
         
         # Adding self-loops to ensure that each node can influence itself
-        G.add_edges_from([(i, i) for i in G.nodes()])
-        for node in G.nodes():
-            G[node][node]['weight'] = 1.0
-        
-        # Add random weights to edges following a power-law distribution
         for u, v in G.edges():
-            if u != v:  # Don't overwrite the self-loop weight
-                # Assign weights from a power-law distribution (e.g., exponent=2.5)
-                G[u][v]['weight'] = nx.utils.random_sequence.powerlaw_sequence(1, exponent=2.5)[0]
+            if u == v:
+                G[u][v]['weight'] = 1.0
+            else:
+                # Assign random weights to edges (using a power-law distribution)
+                G[u][v]['weight'] = np.random.power(a=2.5)
         
         # Normalize weights to make them row stochastic
         for node in G.nodes():
-            out_edges = G.out_edges(node, data=True)
-            total_weight = sum(data.get('weight', 1.0) for _, _, data in out_edges)
-            if total_weight > 0:
-                for _, v, data in out_edges:
-                    data['weight'] = data.get('weight', 1.0) / total_weight
+            out_edges = list(G.out_edges(node, data=True))
+            total = sum(d['weight'] for _, _, d in out_edges)
+            if total > 0:
+                for _, v, d in out_edges:
+                    d['weight'] /= total
         
         self.graph = G
         
