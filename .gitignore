@@ -1,0 +1,8 @@
+# Python cache
+__pycache__/
+**/__pycache__/
+envs/__pycache__/
+
+# Training artifacts
+logs/
+sac_agent_final.zip
