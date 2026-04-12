@@ -8,17 +8,17 @@ class SocialNetworkFeatureExtractor(BaseFeaturesExtractor):
     Feature extractor that flattens the weight matrix and concatenates 
     it with the opinion vector.
     """
-    def __init__(self, observation_space: spaces.Dict, feature_dim: int = 512):
+    def __init__(self, observation_space: spaces.Dict, features_dim: int = 512):
 
         num_nodes = observation_space['opinions'].shape[0]
         input_size = num_nodes + num_nodes * num_nodes  # opinions + flattened weights
 
-        super().__init__(observation_space, features_dim=feature_dim)
+        super().__init__(observation_space, features_dim=features_dim)
 
         self.extract = nn.Sequential(
-            nn.Linear(input_size, 1024),
+            nn.Linear(input_size, 2048),
             nn.ReLU(),
-            nn.Linear(1024, feature_dim),
+            nn.Linear(2048, features_dim),
             nn.ReLU(),
         )
 
@@ -53,15 +53,3 @@ class MLPNetwork(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x)
-
-# SAC integration Helper
-def get_sac_policy_kwargs(num_nodes:int):
-    action_dim = num_nodes * num_nodes  # Adjusting action dimension to match weight matrix size
-    return dict(
-        features_extractor_class=SocialNetworkFeatureExtractor,
-        features_extractor_kwargs=dict(feature_dim=512),
-        net_arch=dict(
-            pi=[512, 512, 256],  # Actor network architecture
-            qf=[512, 512, 256]   # Critic network architecture
-        )
-    )

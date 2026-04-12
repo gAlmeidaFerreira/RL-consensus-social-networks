@@ -13,13 +13,13 @@ class Network:
         opinions (np.ndarray): Opinion vector (num_nodes,)
     """
     
-    def __init__(self, num_nodes=50, m=2, hk_threshold=0.1):
+    def __init__(self, num_nodes=50, m=3, hk_threshold=0.1):
         """
         Initialize the Network.
         
         Args:
             num_nodes: Number of nodes in the network (default: 50)
-            m: Number of edges to attach from a new node to existing nodes (default: 2)
+            m: Number of edges to attach from a new node to existing nodes (default: 3)
             hk_threshold: Threshold for Hegselmann-Krause dynamics (default: 0.1)
         """
         self.num_nodes = num_nodes
@@ -46,12 +46,13 @@ class Network:
         
         # Convert to directed graph
         G = G.to_directed()
+
+        for node in range(self.num_nodes):
+            G.add_edge(node, node, weight=1.0)  # Add self-loops with weight 1.0    
         
         # Adding self-loops to ensure that each node can influence itself
         for u, v in G.edges():
-            if u == v:
-                G[u][v]['weight'] = 1.0
-            else:
+            if u != v:
                 # Assign random weights to edges (using a power-law distribution)
                 G[u][v]['weight'] = np.random.power(a=2.5)
         
@@ -67,6 +68,8 @@ class Network:
         
         # Extract weight matrix from graph
         self.weights = nx.to_numpy_array(self.graph, weight='weight').astype(np.float64)
+        # Store original weights
+        self.original_weights = self.weights.copy()
     
     def apply_dynamics(self):
         """
@@ -93,6 +96,7 @@ class Network:
     def reset(self):
         """Reset the network to initial state with new random opinions."""
         self.opinions = np.random.uniform(-1, 1, size=(self.num_nodes,)).astype(np.float64)
+        self.weights = self.original_weights.copy()
         self._current_gated_weights = self.weights.copy()
         self._step_count = 0
     

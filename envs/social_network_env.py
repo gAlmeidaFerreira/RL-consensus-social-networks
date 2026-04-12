@@ -2,6 +2,7 @@ import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 from envs.network_factory import Network
+from utils.metrics import consensus_degree
 
 
 class SocialNetworkEnv(gym.Env):
@@ -76,7 +77,7 @@ class SocialNetworkEnv(gym.Env):
         new_opinions, gated_weights = self.network.apply_dynamics()
 
         # 3. Calculate reward
-        reward, terminated = self.calculate_reward(prev_consensus, prev_weights)
+        reward, terminated, current_consensus, change_effort, topo_deviation = self.calculate_reward(prev_consensus, prev_weights)
 
         # 4. Check if max steps reached
         self.current_step += 1
@@ -87,19 +88,21 @@ class SocialNetworkEnv(gym.Env):
             'opinions': self.network.opinions.astype(np.float64),
             'weights': gated_weights.astype(np.float64),  # Agents observe the gated weights after applying H-K dynamics
         }
-        info = {}
 
-        return observation, reward, terminated, truncated, info
+        info = {
+            "consensus_degree": self.consensus_degree(),
+            "change_effort": change_effort,
+            "topo_deviation": topo_deviation
+        }
+
+        return observation, float(reward), terminated, truncated, info
 
     def apply_action(self, action):
         # Reshape action back to N x N and add to W
         action_matrix = action.reshape((self.num_nodes, self.num_nodes))
 
-        # Create a mask for existing nodes (where there are edges in the original graph)
-        existing_edges_mask = (self.network.weights > 0).astype(float)
-
         # Apply action only to existing edges (including self-loops)
-        self.network.weights = self.network.weights + (action_matrix * existing_edges_mask)
+        self.network.weights = self.network.weights + action_matrix
 
         # Ensure weights remain non-negative
         self.network.weights = np.clip(self.network.weights, a_min=0, a_max=None)
@@ -107,7 +110,15 @@ class SocialNetworkEnv(gym.Env):
         # TODO: check if action will already make the weights row stochastic
         # Normalize rows of matrix
         row_sums = self.network.weights.sum(axis=1, keepdims=True)
-        self.network.weights = np.divide(self.network.weights, row_sums, out=np.zeros_like(self.network.weights), where=row_sums != 0)
+        self.network.weights = np.divide(
+            self.network.weights, 
+            row_sums, 
+            out=np.zeros_like(self.network.weights), 
+            where=row_sums != 0
+        )
+
+        isolated_mask = (row_sums.flatten() == 0)
+        self.network.weights[isolated_mask, isolated_mask] = 1.0  # Ensure isolated nodes have self-loop
 
     def calculate_reward(self, prev_consensus, prev_weights):
         reward = 0
@@ -136,13 +147,7 @@ class SocialNetworkEnv(gym.Env):
         # Combine components into final reward
         reward = delta_consensus - self.penalty_coeff * change_effort - self.topo_penalty_coeff * topo_deviation + success_bonus
 
-        return reward, terminated
+        return reward, terminated, current_consensus, change_effort, topo_deviation
 
     def consensus_degree(self):
-        # Calculating Opinion Deviation from the mean (range 0 to 1, where 1 means perfect consensus)
-        mean_opinion = np.mean(self.network.opinions)
-        absolute_deviations = np.abs(self.network.opinions - mean_opinion)
-        total_deviation = np.sum(absolute_deviations)
-        consensus_degree = 1 - (total_deviation / self.num_nodes)  # Normalize by number of nodes to get a score between 0 and 1
-
-        return consensus_degree
+        return consensus_degree(self.network.opinions)

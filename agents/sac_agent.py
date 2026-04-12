@@ -1,0 +1,84 @@
+import os
+from typing import Callable
+import torch
+import numpy as np
+from stable_baselines3 import SAC
+from envs.social_network_env import SocialNetworkEnv
+from agents.common.networks import SocialNetworkFeatureExtractor
+from agents.common.callbacks import PolarizationMetricsCallback
+
+def learning_rate_schedule(initial_lr: float) -> Callable[[float], float]:
+    """
+    Creates a learning rate schedule function that decays the learning rate over time.
+    """
+    def schedule(progress_remaining: float) -> float:
+        return progress_remaining * initial_lr
+    return schedule
+
+class SACAgent:
+    def __init__(self, env=None, log_dir="logs/sac", initial_lr=3e-4, num_nodes=50):
+        # Environment setup
+        self.env = env if env else SocialNetworkEnv(num_nodes=num_nodes)
+        self.log_dir = log_dir
+        os.makedirs(self.log_dir, exist_ok=True)
+
+        # Policy configuration
+        self.policy_kwargs = dict(
+            features_extractor_class=SocialNetworkFeatureExtractor,
+            features_extractor_kwargs=dict(features_dim=512),
+            net_arch=dict(
+                pi=[512, 512, 256],  # Actor (Policy)
+                qf=[512, 512, 256]   # Critic (Q-function)
+            ),
+            activation_fn=torch.nn.ReLU
+        )
+
+        # SAC model initialization
+        self.model = SAC(
+            policy='MultiInputPolicy',
+            env=self.env,
+            learning_rate=learning_rate_schedule(initial_lr), # LR schedule from 3e-4 to 0
+            buffer_size=1_000_000,
+            learning_starts=5000,                             # Allow some random exploration before learning
+            batch_size=1024,                                  # Larger batch size for more stable updates
+            tau=0.005,                                        # Soft update coefficient
+            gamma=0.99,                                       # Discount factor
+            train_freq=(1, 'step'),                           # Train every step
+            gradient_steps=1,                                  # Number of gradient steps per training iteration
+            ent_coef='auto',                                      # Automatically adjust entropy coefficient
+            target_entropy='auto',                                    # Automatically set target entropy
+            policy_kwargs=self.policy_kwargs,
+            tensorboard_log=self.log_dir,
+            verbose=1,
+            device='auto' # 'auto' is cleaner than manual cuda checks
+        )
+        print(f"SAC Model initialized on device: {self.model.device}")
+
+    def train(self, total_timesteps=500_000, callback=PolarizationMetricsCallback()):
+        """Execute the training loop."""
+        print(f"Starting training for {total_timesteps} timesteps...")
+        self.model.learn(
+            total_timesteps=total_timesteps,
+            callback=callback,
+            tb_log_name="sac_run",
+            reset_num_timesteps=True
+        )
+
+    def save(self, path="sac_agent"):
+        """Save the trained model."""
+        self.model.save(path)
+
+    def load(self, path="sac_agent"):
+        """Load a pre-trained model."""
+        self.model = SAC.load(path, env=self.env)
+
+    def predict(self, observation, deterministic=True):
+        """Predict an action given an observation."""
+        action, _ = self.model.predict(observation, deterministic=deterministic)
+        return action
+
+if __name__ == "__main__":
+    agent = SACAgent()
+    agent.train(total_timesteps=500_000)
+    agent.save("sac_agent_final")
+
