@@ -5,7 +5,16 @@ from envs.network_factory import Network
 
 
 class SocialNetworkEnv(gym.Env):
-    def __init__(self, num_nodes=50, max_steps=100, cd_threshold=0.95, hk_threshold=0.1, penalty_coeff=0.1, success_bonus=10, action_lower=-0.1, action_upper=0.1, network=None):
+    def __init__(self, num_nodes=50, 
+                 max_steps=100, 
+                 cd_threshold=0.95, 
+                 hk_threshold=0.1, 
+                 penalty_coeff=0.1, 
+                 success_bonus=10, 
+                 action_lower=-0.1, 
+                 action_upper=0.1,
+                 topo_penalty_coeff=0.1, 
+                 network=None):
         super(SocialNetworkEnv, self).__init__()
 
         self.num_nodes = num_nodes
@@ -14,6 +23,7 @@ class SocialNetworkEnv(gym.Env):
         self.hk_threshold = hk_threshold
         self.penalty_coeff = penalty_coeff
         self.success_bonus = success_bonus
+        self.topo_penalty_coeff = topo_penalty_coeff
         self.current_step = 0
 
         # Use provided network or create a new one
@@ -39,6 +49,11 @@ class SocialNetworkEnv(gym.Env):
 
         # Reset network opinions and state
         self.network.reset()
+
+        # Calculate initial degree variance
+        adj = (self.network.weights > 1e-4).astype(float)
+        initial_degrees = np.sum(adj, axis=1) # Out-degrees
+        self.initial_degree_variance = np.var(initial_degrees)
 
         # Build observation from network state
         observation = {
@@ -104,6 +119,13 @@ class SocialNetworkEnv(gym.Env):
         # B: Penalty for large changes in weights to encourage stability(Frobenious norm of weight change)
         change_effort = np.linalg.norm(self.network.weights - prev_weights, 'fro')
 
+        # C: Topology change penalty (squared difference for existing edges to discourage drastic topology changes)
+        current_adj = (self.network.weights > 1e-4).astype(float)
+        current_degrees = np.sum(current_adj, axis=1) # Out-degrees
+        current_degree_variance = np.var(current_degrees)
+        topo_deviation = (current_degree_variance - self.initial_degree_variance) ** 2 # deviation from initial degree variance as a measure of topology change
+
+
         # C: Success bonus for achieving consensus (if variance is below a certain threshold)
         success_bonus = 0
         terminated = False
@@ -112,7 +134,7 @@ class SocialNetworkEnv(gym.Env):
             terminated = True
 
         # Combine components into final reward
-        reward = delta_consensus - self.penalty_coeff * change_effort + success_bonus
+        reward = delta_consensus - self.penalty_coeff * change_effort - self.topo_penalty_coeff * topo_deviation + success_bonus
 
         return reward, terminated
 
