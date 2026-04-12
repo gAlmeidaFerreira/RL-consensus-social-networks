@@ -1,2 +1,1 @@
-from .network_factory import create_scale_free_weighted_directed_network
-
+from .network_factory import Network, apply_hk_dynamics
