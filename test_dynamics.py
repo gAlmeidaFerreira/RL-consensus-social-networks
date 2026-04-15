@@ -1,6 +1,6 @@
 import numpy as np
 from envs.network_factory import Network
-from utils.metrics import consensus_degree
+from utils.operations import consensus_degree
 from utils.visualization import plot_opinion_distribution
 
 

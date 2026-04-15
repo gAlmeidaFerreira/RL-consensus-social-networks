@@ -1,5 +1,7 @@
 import networkx as nx
 import numpy as np
+import torch
+from utils.operations import normalize_weights
 
 class Network:
     """
@@ -13,7 +15,7 @@ class Network:
         opinions (np.ndarray): Opinion vector (num_nodes,)
     """
     
-    def __init__(self, num_nodes=50, m=3, hk_threshold=0.1):
+    def __init__(self, num_nodes=50, m=3, hk_threshold=0.1, opinion_dynamics=None, device=None):
         """
         Initialize the Network.
         
@@ -22,25 +24,27 @@ class Network:
             m: Number of edges to attach from a new node to existing nodes (default: 3)
             hk_threshold: Threshold for Hegselmann-Krause dynamics (default: 0.1)
         """
+        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.num_nodes = num_nodes
         self.m = m
         self.hk_threshold = hk_threshold
+        self.opinion_dynamics = opinion_dynamics
         self._step_count = 0
-        
         # Initialize the graph and weights
         self._create_network()
         
         # Initialize opinions randomly between -1 and 1
-        self.opinions = np.random.uniform(-1, 1, size=(self.num_nodes,)).astype(np.float64)
+        self.opinions = torch.rand(self.num_nodes, dtype=torch.float64, device=self.device) * 2 - 1  # Uniform(-1, 1)
         
         # Store current gated weights (for dynamics application)
-        self._current_gated_weights = self.weights.copy()
+        self._current_gated_weights = self.weights.clone() if isinstance(self.weights, torch.Tensor) else self.weights.copy()
     
     def _create_network(self):
         """
         Create a scale-free weighted directed network using the Barabási-Albert model.
         Sets self.graph and self.weights as instance attributes.
         """
+        #TODO: #5 For larger networks consider using torch_geometric or sparse representations to handle memory efficiently.
         # Create a scale-free network using Barabási-Albert model
         G = nx.barabasi_albert_graph(self.num_nodes, m=self.m)
         
@@ -48,30 +52,29 @@ class Network:
         G = G.to_directed()
 
         for node in range(self.num_nodes):
-            G.add_edge(node, node, weight=1.0)  # Add self-loops with weight 1.0    
-        
-        # Adding self-loops to ensure that each node can influence itself
-        for u, v in G.edges():
-            if u != v:
-                # Assign random weights to edges (using a power-law distribution)
-                G[u][v]['weight'] = np.random.power(a=2.5)
-        
-        # Normalize weights to make them row stochastic
-        for node in G.nodes():
-            out_edges = list(G.out_edges(node, data=True))
-            total = sum(d['weight'] for _, _, d in out_edges)
-            if total > 0:
-                for _, v, d in out_edges:
-                    d['weight'] /= total
+            G.add_edge(node, node, weight=1.0)  # Add self-loops with weight 1.0
+
+        # Build and normalize the weight matrix on GPU (fallback to CPU when CUDA is unavailable).
+        device = self.device
+        adjacency_tensor = torch.zeros((self.num_nodes, self.num_nodes), dtype=torch.float64, device=device)
+        edge_index = torch.tensor(list(G.edges()), dtype=torch.long, device=device)
+        adjacency_tensor[edge_index[:, 0], edge_index[:, 1]] = 1.0
+
+        # Power(a=2.5) samples can be generated as U^(1/a), where U ~ Uniform(0, 1).
+        random_weights = torch.rand((self.num_nodes, self.num_nodes), dtype=torch.float64, device=device).pow(1.0 / 2.5)
+        weighted_matrix = random_weights * adjacency_tensor
+        weighted_matrix.fill_diagonal_(1.0)
+
+        normalized_matrix = normalize_weights(weighted_matrix, return_tensor=True)
         
         self.graph = G
         
-        # Extract weight matrix from graph
-        self.weights = nx.to_numpy_array(self.graph, weight='weight').astype(np.float64)
+        # Keep weights on device to avoid host copies during network creation.
+        self.weights = normalized_matrix
         # Store original weights
-        self.original_weights = self.weights.copy()
+        self.original_weights = self.weights.clone()
     
-    def apply_dynamics(self):
+    def apply_dynamics(self, dynamics=None):
         """
         Apply Hegselmann-Krause dynamics to update opinions based on current weights.
         
@@ -80,11 +83,16 @@ class Network:
                 - new_opinions: Updated opinion vector
                 - gated_weights: Gated weight matrix used for update
         """
-        new_opinions, gated_weights = apply_hk_dynamics(
+        dynamics = dynamics or self.opinion_dynamics or apply_hk_dynamics
+
+        new_opinions, gated_weights = dynamics(
             self.opinions, 
             self.weights, 
             self.hk_threshold
         )
+
+        if not isinstance(new_opinions, torch.Tensor) or not isinstance(gated_weights, torch.Tensor):
+            raise TypeError("dynamics must return (torch.Tensor, torch.Tensor)")
         
         # Update internal state
         self.opinions = new_opinions
@@ -95,9 +103,9 @@ class Network:
     
     def reset(self):
         """Reset the network to initial state with new random opinions."""
-        self.opinions = np.random.uniform(-1, 1, size=(self.num_nodes,)).astype(np.float64)
-        self.weights = self.original_weights.copy()
-        self._current_gated_weights = self.weights.copy()
+        self.opinions = torch.rand(self.num_nodes, dtype=torch.float64, device=self.device) * 2 - 1  # Uniform(-1, 1)
+        self.weights = self.original_weights.clone() if isinstance(self.original_weights, torch.Tensor) else self.original_weights.copy()
+        self._current_gated_weights = self.weights.clone() if isinstance(self.weights, torch.Tensor) else self.weights.copy()
         self._step_count = 0
     
     @property
@@ -105,7 +113,7 @@ class Network:
         """Get the current step count."""
         return self._step_count
 
-def apply_hk_dynamics(opinions, weights, epsilon):
+def apply_hk_dynamics(opinions, weights, epsilon, return_tensor=True):
     """
     Apply Hegselmann-Krause dynamics to opinions based on weighted influence.
     
@@ -113,30 +121,36 @@ def apply_hk_dynamics(opinions, weights, epsilon):
         opinions: Opinion vector (num_nodes,)
         weights: Weight/adjacency matrix (num_nodes x num_nodes)
         epsilon: Confidence threshold for opinion updates
-    
+        return_tensor: Whether to return tensors or numpy arrays
+        device: Device to perform computations on
+
     Returns:
         Tuple of (new_opinions, gated_weights) where:
             - new_opinions: Updated opinion vector
             - gated_weights: Gated weight matrix used for update
     """
-    # Calculate the distance matrix between opinions
-    dist_matrix = np.abs(opinions[:, np.newaxis] - opinions[np.newaxis, :])
 
-    # Select only those weights where the distance is less than or equal to epsilon
-    influence_mask = (dist_matrix <= epsilon).astype(float)
-    gated_weights = weights * influence_mask
+    if not isinstance(opinions, torch.Tensor) or not isinstance(weights, torch.Tensor):
+        raise TypeError("apply_hk_dynamics expects torch.Tensor inputs for opinions and weights")
 
-    # normalize gated weights to ensure they sum to 1 for each node
-    row_sums = gated_weights.sum(axis=1, keepdims=True)
-    gated_weights = np.divide(gated_weights, row_sums, 
-                              out=np.zeros_like(gated_weights), 
-                              where=row_sums != 0)
+    opinions_tensor = opinions.flatten()
+    weights_tensor = weights
 
-    # if node is isolated, it keeps its opinion
-    isolated_mask = (row_sums.flatten() == 0)
-    gated_weights[isolated_mask, isolated_mask] = 1.0
+    # Calculate pairwise opinion distances and build the confidence mask.
+    dist_matrix = torch.abs(opinions_tensor.unsqueeze(1) - opinions_tensor.unsqueeze(0))
+    influence_mask = (dist_matrix <= epsilon).to(torch.float64)
 
-    # Update opinions based on the weighted average of neighbors' opinions
-    new_opinions = np.dot(gated_weights, opinions)
-    return new_opinions, gated_weights
+    # Normalize using shared utility to keep row-stochastic behavior consistent.
+    gated_weights = normalize_weights(weights_tensor * influence_mask, return_tensor=True)
+
+    # Update opinions using weighted neighborhood influence.
+    new_opinions = torch.matmul(gated_weights, opinions_tensor)
+
+    if return_tensor:
+        return new_opinions, gated_weights
+
+    return (
+        new_opinions.detach().cpu().numpy().astype(np.float64),
+        gated_weights.detach().cpu().numpy().astype(np.float64),
+    )
 

@@ -3,6 +3,7 @@ from typing import Callable
 import torch
 import numpy as np
 from stable_baselines3 import SAC
+from stable_baselines3.common.vec_env import SubprocVecEnv
 from envs.social_network_env import SocialNetworkEnv
 from agents.common.networks import SocialNetworkFeatureExtractor
 from agents.common.callbacks import PolarizationMetricsCallback
@@ -15,12 +16,20 @@ def learning_rate_schedule(initial_lr: float) -> Callable[[float], float]:
         return progress_remaining * initial_lr
     return schedule
 
+def make_social_env(num_nodes=50):
+    def _init():
+        return SocialNetworkEnv(num_nodes=num_nodes)
+    return _init
+
 class SACAgent:
-    def __init__(self, env=None, log_dir="logs/sac", initial_lr=3e-4, num_nodes=50):
-        # Environment setup
-        self.env = env if env else SocialNetworkEnv(num_nodes=num_nodes)
+    def __init__(self, env=None, log_dir="logs/sac", initial_lr=3e-4, num_nodes=50, n_envs=8):
+        # Logs setup
         self.log_dir = log_dir
         os.makedirs(self.log_dir, exist_ok=True)
+
+        # VecEnv setup for parallel environments
+        env_fns = [make_social_env(num_nodes) for _ in range(n_envs)]
+        self.env = SubprocVecEnv(env_fns)
 
         # Policy configuration
         self.policy_kwargs = dict(
@@ -37,20 +46,20 @@ class SACAgent:
         self.model = SAC(
             policy='MultiInputPolicy',
             env=self.env,
-            learning_rate=learning_rate_schedule(initial_lr), # LR schedule from 3e-4 to 0
+            learning_rate=learning_rate_schedule(initial_lr), # LR schedule
             buffer_size=1_000_000,
             learning_starts=5000,                             # Allow some random exploration before learning
-            batch_size=1024,                                  # Larger batch size for more stable updates
+            batch_size=512,                                  # Larger batch size for more stable updates
             tau=0.005,                                        # Soft update coefficient
             gamma=0.99,                                       # Discount factor
             train_freq=(1, 'step'),                           # Train every step
-            gradient_steps=1,                                  # Number of gradient steps per training iteration
+            gradient_steps=10,                                  # Number of gradient steps per training iteration
             ent_coef='auto',                                      # Automatically adjust entropy coefficient
             target_entropy='auto',                                    # Automatically set target entropy
             policy_kwargs=self.policy_kwargs,
             tensorboard_log=self.log_dir,
             verbose=1,
-            device='auto' # 'auto' is cleaner than manual cuda checks
+            device='cuda' # 'auto' is cleaner than manual cuda checks
         )
         print(f"SAC Model initialized on device: {self.model.device}")
 
