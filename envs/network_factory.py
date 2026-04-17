@@ -34,7 +34,7 @@ class Network:
         self._create_network()
         
         # Initialize opinions randomly between -1 and 1
-        self.opinions = torch.rand(self.num_nodes, dtype=torch.float64, device=self.device) * 2 - 1  # Uniform(-1, 1)
+        self.opinions = torch.rand(self.num_nodes, dtype=torch.float32, device=self.device) * 2 - 1  # Uniform(-1, 1)
         
         # Store current gated weights (for dynamics application)
         self._current_gated_weights = self.weights.clone() if isinstance(self.weights, torch.Tensor) else self.weights.copy()
@@ -56,12 +56,12 @@ class Network:
 
         # Build and normalize the weight matrix on GPU (fallback to CPU when CUDA is unavailable).
         device = self.device
-        adjacency_tensor = torch.zeros((self.num_nodes, self.num_nodes), dtype=torch.float64, device=device)
+        adjacency_tensor = torch.zeros((self.num_nodes, self.num_nodes), dtype=torch.float32, device=device)
         edge_index = torch.tensor(list(G.edges()), dtype=torch.long, device=device)
         adjacency_tensor[edge_index[:, 0], edge_index[:, 1]] = 1.0
 
         # Power(a=2.5) samples can be generated as U^(1/a), where U ~ Uniform(0, 1).
-        random_weights = torch.rand((self.num_nodes, self.num_nodes), dtype=torch.float64, device=device).pow(1.0 / 2.5)
+        random_weights = torch.rand((self.num_nodes, self.num_nodes), dtype=torch.float32, device=device).pow(1.0 / 2.5)
         weighted_matrix = random_weights * adjacency_tensor
         weighted_matrix.fill_diagonal_(1.0)
 
@@ -103,7 +103,7 @@ class Network:
     
     def reset(self):
         """Reset the network to initial state with new random opinions."""
-        self.opinions = torch.rand(self.num_nodes, dtype=torch.float64, device=self.device) * 2 - 1  # Uniform(-1, 1)
+        self.opinions = torch.rand(self.num_nodes, dtype=torch.float32, device=self.device) * 2 - 1  # Uniform(-1, 1)
         self.weights = self.original_weights.clone() if isinstance(self.original_weights, torch.Tensor) else self.original_weights.copy()
         self._current_gated_weights = self.weights.clone() if isinstance(self.weights, torch.Tensor) else self.weights.copy()
         self._step_count = 0
@@ -138,7 +138,7 @@ def apply_hk_dynamics(opinions, weights, epsilon, return_tensor=True):
 
     # Calculate pairwise opinion distances and build the confidence mask.
     dist_matrix = torch.abs(opinions_tensor.unsqueeze(1) - opinions_tensor.unsqueeze(0))
-    influence_mask = (dist_matrix <= epsilon).to(torch.float64)
+    influence_mask = (dist_matrix <= epsilon).to(torch.float32)
 
     # Normalize using shared utility to keep row-stochastic behavior consistent.
     gated_weights = normalize_weights(weights_tensor * influence_mask, return_tensor=True)
@@ -150,7 +150,7 @@ def apply_hk_dynamics(opinions, weights, epsilon, return_tensor=True):
         return new_opinions, gated_weights
 
     return (
-        new_opinions.detach().cpu().numpy().astype(np.float64),
-        gated_weights.detach().cpu().numpy().astype(np.float64),
+        new_opinions.detach().cpu().numpy().astype(np.float32),
+        gated_weights.detach().cpu().numpy().astype(np.float32),
     )
 

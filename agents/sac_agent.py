@@ -7,6 +7,7 @@ from stable_baselines3.common.vec_env import SubprocVecEnv
 from envs.social_network_env import SocialNetworkEnv
 from agents.common.networks import SocialNetworkFeatureExtractor
 from agents.common.callbacks import PolarizationMetricsCallback
+from utils.visualization import plot_opinion_distribution, plot_network
 
 def learning_rate_schedule(initial_lr: float) -> Callable[[float], float]:
     """
@@ -28,8 +29,11 @@ class SACAgent:
         os.makedirs(self.log_dir, exist_ok=True)
 
         # VecEnv setup for parallel environments
-        env_fns = [make_social_env(num_nodes) for _ in range(n_envs)]
-        self.env = SubprocVecEnv(env_fns)
+        if n_envs > 1:
+            env_fns = [make_social_env(num_nodes) for _ in range(n_envs)]
+            self.env = SubprocVecEnv(env_fns)
+        else:
+            self.env = make_social_env(num_nodes)()
 
         # Policy configuration
         self.policy_kwargs = dict(
@@ -59,13 +63,22 @@ class SACAgent:
             policy_kwargs=self.policy_kwargs,
             tensorboard_log=self.log_dir,
             verbose=1,
-            device='cuda' # 'auto' is cleaner than manual cuda checks
+            device='cuda'
         )
         print(f"SAC Model initialized on device: {self.model.device}")
 
     def train(self, total_timesteps=500_000, callback=PolarizationMetricsCallback()):
         """Execute the training loop."""
         print(f"Starting training for {total_timesteps} timesteps...")
+        if hasattr(self.env, 'network'):
+            plot_network(
+                self.env.network,
+                title="Initial Social Network ( SAC Agent Start )",
+                save_path="outputs/initial_network_visualization.png" # Saves the file
+                # If you don't provide save_path, it will call plt.show()
+        )
+        else:
+            print("Error: Could not find network object within environment to visualize.")
         self.model.learn(
             total_timesteps=total_timesteps,
             callback=callback,

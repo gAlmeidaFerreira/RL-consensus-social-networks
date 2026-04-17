@@ -8,14 +8,14 @@ from utils.operations import consensus_degree, normalize_weights
 
 class SocialNetworkEnv(gym.Env):
     def __init__(self, num_nodes=50, 
-                 max_steps=500, 
+                 max_steps=100, 
                  cd_threshold=0.95, 
-                 hk_threshold=0.2,
-                 delta_consensus_coeff=50, 
+                 hk_threshold=0.3,
+                 delta_consensus_coeff=10.0, 
                  change_penalty_coeff=0.1, 
                  success_bonus=10, 
-                 action_lower=-0.2, 
-                 action_upper=0.2,
+                 action_lower=-1,
+                 action_upper=1,
                  topo_penalty_coeff=0.01, 
                  opinion_dynamics=None,
                  network=None):
@@ -48,20 +48,20 @@ class SocialNetworkEnv(gym.Env):
             )
 
         # Action Space: Adjustments to the weight matrix (N x N)
-        self.action_space = spaces.Box(low=action_lower, high=action_upper, shape=(self.num_nodes * self.num_nodes,), dtype=np.float64)
+        self.action_space = spaces.Box(low=action_lower, high=action_upper, shape=(self.num_nodes * self.num_nodes,), dtype=np.float32)
 
         # Observation Space: opinions, weight matrix and communities
         self.observation_space = spaces.Dict({
-            'opinions': spaces.Box(low=-1.0, high=1.0, shape=(self.num_nodes,), dtype=np.float64),
-            'weights': spaces.Box(low=0.0, high=1.0, shape=(self.num_nodes, self.num_nodes), dtype=np.float64),
+            'opinions': spaces.Box(low=-1.0, high=1.0, shape=(self.num_nodes,), dtype=np.float32),
+            'weights': spaces.Box(low=0.0, high=1.0, shape=(self.num_nodes, self.num_nodes), dtype=np.float32),
             # TODO: #4 update communities in the future
         })
 
     @staticmethod
     def _to_numpy(value):
         if isinstance(value, torch.Tensor):
-            return value.detach().cpu().numpy().astype(np.float64)
-        return np.asarray(value, dtype=np.float64)
+            return value.detach().cpu().numpy().astype(np.float32)
+        return np.asarray(value, dtype=np.float32)
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -74,7 +74,7 @@ class SocialNetworkEnv(gym.Env):
         self.network.opinions = self.network.opinions.flatten()
 
         # Calculate initial degree variance
-        adj = (self.network.weights > 1e-4).to(torch.float64)
+        adj = (self.network.weights > 1e-4).to(torch.float32)
         initial_degrees = torch.sum(adj, dim=1)  # Out-degrees
         self.initial_degree_variance = torch.var(initial_degrees, unbiased=False)
 
@@ -110,7 +110,7 @@ class SocialNetworkEnv(gym.Env):
             self.network.weights = gated_weights
 
             # 3. Calculate reward
-            reward, terminated, current_consensus, change_effort, topo_deviation = self.calculate_reward(prev_consensus, prev_weights)
+            reward, terminated, current_consensus, change_effort, topo_deviation, delta_consensus = self.calculate_reward(prev_consensus, prev_weights)
 
             # 4. Check if max steps reached
             self.current_step += 1
@@ -127,6 +127,7 @@ class SocialNetworkEnv(gym.Env):
             "change_effort": change_effort,
             "topo_deviation": topo_deviation,
             "reward_value": reward,
+            "delta_consensus": delta_consensus
         }
 
         return observation, float(reward), terminated, truncated, info
@@ -162,7 +163,7 @@ class SocialNetworkEnv(gym.Env):
         change_effort = torch.linalg.norm(current_weights_tensor - prev_weights_tensor, ord="fro")
 
         # C: Topology change penalty (squared difference for existing edges to discourage drastic topology changes)
-        current_adj = (current_weights_tensor > 1e-4).to(torch.float64)
+        current_adj = (current_weights_tensor > 1e-4).to(torch.float32)
         current_degrees = torch.sum(current_adj, dim=1)  # Out-degrees
         current_degree_variance = torch.var(current_degrees, unbiased=False)
         topo_deviation = (current_degree_variance - self.initial_degree_variance) ** 2
@@ -186,5 +187,6 @@ class SocialNetworkEnv(gym.Env):
         change_effort = change_effort.item()
         topo_deviation = topo_deviation.item()
         current_consensus = current_consensus.item()
+        delta_consensus = delta_consensus.item()
 
-        return reward, terminated, current_consensus, change_effort, topo_deviation
+        return reward, terminated, current_consensus, change_effort, topo_deviation, delta_consensus

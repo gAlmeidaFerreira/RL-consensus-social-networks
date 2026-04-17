@@ -6,3 +6,4 @@ envs/__pycache__/
 # Training artifacts
 logs/
 sac_agent_final.zip
+outputs/

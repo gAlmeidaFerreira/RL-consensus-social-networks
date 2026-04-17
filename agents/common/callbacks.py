@@ -18,7 +18,7 @@ class PolarizationMetricsCallback(BaseCallback):
 
         # 1. Log Step-wise Mean Metrics (aggregating across all n_envs)
         # We only record if the key exists in at least one info dict
-        metrics_to_log = ['consensus_degree', 'change_effort', 'topo_deviation', 'reward_value']
+        metrics_to_log = ['consensus_degree', 'change_effort', 'topo_deviation', 'reward_value', 'delta_consensus']
         
         for metric in metrics_to_log:
             values = [info.get(metric) for info in infos if info.get(metric) is not None]
