@@ -3,25 +3,45 @@ The goal of the project is to build a Reinforcement learning model that can prev
 
 ## File Structure
 polarization_rl/
+
 ├── envs/
+
 │   ├── init.py
+
 │   ├── social_network_env.py   # The Gymnasium environment class
+
 │   └── network_factory.py      # Scale-free graph generation logic and Opinion Dynamics
+
 ├── agents/
+
 │   ├── init.py
+
 │   ├── common/
+
 │   │   ├── networks.py        # Shared GNN and MLP architectures
+
 │   │   └── replay_buffer.py    # Experience replay for SAC/MAAC
+
 │   ├── sac_agent.py            # Single-agent Soft Actor-Critic logic
+
 │   └── maac_agent.py           # Multi-agent Actor-Critic logic
+
 ├── utils/
+
 │   ├── community_detection.py  # Wrapper for the two detection algorithms
+
 │   ├── metrics.py              # Polarization & consensus degree calcs
+
 │   └── visualization.py       # Graph plotting and opinion distributions
+
 ├── config/
+
 │   └── hyperparams.yaml        # Learning rates, gamma, epsilon, etc.
+
 ├── train.py                   # Entry point for training models
+
 ├── evaluate.py                # Script to compare the two algorithms
+
 └── requirements.txt
 
 ## V1
